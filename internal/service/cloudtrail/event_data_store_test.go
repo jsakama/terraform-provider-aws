@@ -97,6 +97,41 @@ func TestAccCloudTrailEventDataStore_billingMode(t *testing.T) {
 	})
 }
 
+func TestAccCloudTrailEventDataStore_suspend(t *testing.T) {
+	ctx := acctest.Context(t)
+	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
+	resourceName := "aws_cloudtrail_event_data_store.test"
+
+	resource.ParallelTest(t, resource.TestCase{
+		PreCheck:                 func() { acctest.PreCheck(ctx, t) },
+		ErrorCheck:               acctest.ErrorCheck(t, names.CloudTrailServiceID),
+		ProtoV5ProviderFactories: acctest.ProtoV5ProviderFactories,
+		CheckDestroy:             testAccCheckEventDataStoreDestroy(ctx),
+		Steps: []resource.TestStep{
+			{
+				Config: testAccEventDataStoreConfig_suspend(rName, "true"),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckEventDataStoreExists(ctx, resourceName),
+					resource.TestCheckResourceAttr(resourceName, "suspend", acctest.CtTrue),
+					resource.TestCheckResourceAttr(resourceName, testAccCheckEventDataStoreStatus(ctx), acctest.CtTrue),
+				),
+			},
+			{
+				ResourceName:      resourceName,
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+			{
+				Config: testAccEventDataStoreConfig_suspend(rName, "false"),
+				Check: resource.ComposeTestCheckFunc(
+					testAccCheckEventDataStoreExists(ctx, resourceName),
+					resource.TestCheckResourceAttr(resourceName, "suspend", acctest.CtFalse),
+				),
+			},
+		},
+	})
+}
+
 func TestAccCloudTrailEventDataStore_kmsKeyId(t *testing.T) {
 	ctx := acctest.Context(t)
 	rName := sdkacctest.RandomWithPrefix(acctest.ResourcePrefix)
@@ -332,6 +367,32 @@ func TestAccCloudTrailEventDataStore_advancedEventSelector(t *testing.T) {
 	})
 }
 
+func testAccCheckEventDataStoreStatus(ctx context.Context) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		conn := acctest.Provider.Meta().(*conns.AWSClient).CloudTrailClient(ctx)
+
+		for _, rs := range s.RootModule().Resources {
+			if rs.Type != "aws_cloudtrail_event_data_store" {
+				continue
+			}
+
+			output, err := tfcloudtrail.FindEventDataStoreByARN(ctx, conn, rs.Primary.ID)
+
+			if tfresource.NotFound(err) {
+				continue
+			}
+
+			if err != nil {
+				return err
+			}
+
+			return fmt.Errorf("%s", output.Status)
+		}
+
+		return nil
+	}
+}
+
 func testAccCheckEventDataStoreExists(ctx context.Context, n string) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
 		rs, ok := s.RootModule().Resources[n]
@@ -403,6 +464,17 @@ resource "aws_cloudtrail_event_data_store" "test" {
   termination_protection_enabled = false # For ease of deletion.
 }
 `, rName)
+}
+
+func testAccEventDataStoreConfig_suspend(rName, suspend string) string {
+	return fmt.Sprintf(`
+resource "aws_cloudtrail_event_data_store" "test" {
+  name = %[1]q
+
+  suspend                   = %[2]q
+  termination_protection_enabled = false # For ease of deletion.
+}
+`, rName, suspend)
 }
 
 func testAccEventDataStoreConfig_kmsKeyId(rName string) string {
