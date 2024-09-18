@@ -179,6 +179,11 @@ func resourceEventDataStore() *schema.Resource {
 			},
 			names.AttrTags:    tftags.TagsSchema(),
 			names.AttrTagsAll: tftags.TagsSchemaComputed(),
+			"suspend": {
+				Type:     schema.TypeBool,
+				Optional: true,
+				Default:  false,
+			},
 			"termination_protection_enabled": {
 				Type:     schema.TypeBool,
 				Optional: true,
@@ -199,6 +204,7 @@ func resourceEventDataStoreCreate(ctx context.Context, d *schema.ResourceData, m
 		Name:                         aws.String(name),
 		OrganizationEnabled:          aws.Bool(d.Get("organization_enabled").(bool)),
 		RetentionPeriod:              aws.Int32(int32(d.Get(names.AttrRetentionPeriod).(int))),
+		StartIngestion:               aws.Bool(!d.Get("suspend").(bool)),
 		TagsList:                     getTagsIn(ctx),
 		TerminationProtectionEnabled: aws.Bool(d.Get("termination_protection_enabled").(bool)),
 	}
@@ -290,6 +296,18 @@ func resourceEventDataStoreUpdate(ctx context.Context, d *schema.ResourceData, m
 			input.RetentionPeriod = aws.Int32(int32(d.Get(names.AttrRetentionPeriod).(int)))
 		}
 
+		if d.HasChange("suspend") {
+			if d.Get("suspend").(bool) {
+				if _, err := stopEventDataStoreIngestion(ctx, conn, d.Id()); err != nil {
+					return sdkdiag.AppendErrorf(diags, "updating CloudTrail Event Data Store Ingestion(%s): %s", d.Id(), err)
+				}
+			} else {
+				if _, err := startEventDataStoreIngestion(ctx, conn, d.Id()); err != nil {
+					return sdkdiag.AppendErrorf(diags, "updating CloudTrail Event Data Store Ingestion(%s): %s", d.Id(), err)
+				}
+			}
+		}
+
 		if d.HasChange("termination_protection_enabled") {
 			input.TerminationProtectionEnabled = aws.Bool(d.Get("termination_protection_enabled").(bool))
 		}
@@ -330,6 +348,32 @@ func resourceEventDataStoreDelete(ctx context.Context, d *schema.ResourceData, m
 	}
 
 	return diags
+}
+
+func startEventDataStoreIngestion(ctx context.Context, conn *cloudtrail.Client, arn string) (*cloudtrail.StartEventDataStoreIngestionOutput, error) {
+	input := cloudtrail.StartEventDataStoreIngestionInput{
+		EventDataStore: aws.String(arn),
+	}
+	output, err := conn.StartEventDataStoreIngestion(ctx, &input)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return output, err
+}
+
+func stopEventDataStoreIngestion(ctx context.Context, conn *cloudtrail.Client, arn string) (*cloudtrail.StopEventDataStoreIngestionOutput, error) {
+	input := cloudtrail.StopEventDataStoreIngestionInput{
+		EventDataStore: aws.String(arn),
+	}
+	output, err := conn.StopEventDataStoreIngestion(ctx, &input)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return output, err
 }
 
 func findEventDataStoreByARN(ctx context.Context, conn *cloudtrail.Client, arn string) (*cloudtrail.GetEventDataStoreOutput, error) {
